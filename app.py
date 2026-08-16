@@ -1,7 +1,9 @@
+import io
 import os
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda
@@ -83,6 +85,27 @@ career_agent = create_agent(
 )
 
 
+def extract_text_from_pdf(file_bytes: bytes) -> str:
+    """Extract plain text from an uploaded PDF file's raw bytes."""
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {exc}")
+
+    pages_text = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        pages_text.append(text)
+
+    full_text = "\n".join(pages_text).strip()
+    if not full_text:
+        raise HTTPException(
+            status_code=400,
+            detail="No extractable text found in this PDF (it may be a scanned image).",
+        )
+    return full_text
+
+
 # --- 3. Request/response schema for the API ---
 class CareerAgentInput(BaseModel):
     resume_text: str = Field(..., description="Full text extracted from the student's resume PDF")
@@ -133,6 +156,32 @@ career_chain = RunnableLambda(run_career_agent)
 app = FastAPI(title="Placement-Ready AI Career Agent")
 
 add_routes(app, career_chain, path="/career-agent", playground_type="default")
+
+
+# --- 5. PDF upload endpoint ---
+# LangServe's auto-generated playground only renders plain text/number form
+# fields from the pydantic schema above -- it has no file-upload widget.
+# This separate endpoint accepts an actual PDF file (multipart/form-data),
+# extracts the resume text server-side, then runs the same agent pipeline.
+@app.post("/career-agent/upload-resume")
+async def upload_resume(
+    resume_file: UploadFile = File(..., description="Resume as a PDF file"),
+    target_role: str = Form(..., description="e.g. 'Machine Learning Engineer'"),
+    github_username: str = Form(...),
+):
+    if resume_file.content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Please upload a PDF file.")
+
+    file_bytes = await resume_file.read()
+    resume_text = extract_text_from_pdf(file_bytes)
+
+    payload = CareerAgentInput(
+        resume_text=resume_text,
+        target_role=target_role,
+        github_username=github_username,
+    )
+    return run_career_agent(payload)
+
 
 if __name__ == "__main__":
     import uvicorn
