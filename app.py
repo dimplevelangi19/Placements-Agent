@@ -15,7 +15,7 @@ from langserve import add_routes
 
 # --- 1. LLM ---
 llm = ChatGoogleGenerativeAI(
-    model="gemma-2-27b-it",
+    model="gemini-2.5-flash",
     google_api_key=os.environ.get("GOOGLE_API_KEY"),
     temperature=0.3,
 )
@@ -265,3 +265,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+fix model name
