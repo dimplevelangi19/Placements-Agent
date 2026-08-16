@@ -10,3 +10,4 @@ requests
 pypdf
 ddgs
 sse_starlette
+python-multipart
